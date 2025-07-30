@@ -12,7 +12,7 @@ data_folder: /mnt/lv3/fuyuxiang/dataset/sb_sep/development_set
 base_folder_dm: /yourpath/
 
 experiment_name: convtasnet_4-mix
-output_folder: !ref /mnt/g2/fuyuxiang/workspace/CCF2/USS_2/recipes/Conv-Tasnet/results/<experiment_name>/<seed>
+output_folder: !ref /home/zhouyongyuan/workspace/USS_2/recipes/Conv-Tasnet/results/<experiment_name>/<seed>
 train_log: !ref <output_folder>/train_log.txt
 save_folder: !ref <output_folder>/save
 train_data: ../data/baseline_train_data.csv
@@ -108,7 +108,7 @@ Encoder: !new:models.ic_conv_tasnet.Encoder
 
 #MaskNet: !new:speechbrain.lobes.models.conv_tasnet.MaskNet
 
-MaskNet: !new:models.ic_conv_tasnet.TCN
+MaskNet: !new:models.ic_conv_tasnet.MaskNet
 
 #Decoder: !new:speechbrain.lobes.models.dual_path.Decoder
 

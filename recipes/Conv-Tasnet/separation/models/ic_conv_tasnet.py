@@ -1,13 +1,22 @@
 # conv_tasnet_ic.py
 import torch
 from torch.autograd import Variable
-from config import config
-import modules
+from .config import config
+from . import modules
 
 # 1. 编码器模块：封装原self.encoder的Conv1d
 class Encoder(torch.nn.Module):
-    def __init__(self, mic_num, enc_dim, win, stride):
+    def __init__(self,
+                 mic_num=config.model_mic_num,
+                 enc_dim=config.model_enc_dim,
+                 win=int(config.sample_rate * config.model_win / 1000),  # 转换为采样点
+                 stride=config.model_win // 2
+                 ):
         super(Encoder, self).__init__()
+        self.mic_num = mic_num
+        self.enc_dim = enc_dim
+        self.win = win
+        self.stride = stride
         self.encoder = torch.nn.Conv1d(
             mic_num,
             enc_dim,
@@ -32,7 +41,17 @@ class Encoder(torch.nn.Module):
 
 # 2. 掩码网络模块：封装原self.TCN（TCN）
 class MaskNet(torch.nn.Module):
-    def __init__(self, mic_num, ch_dim, input_dim, output_dim, BN_dim, hidden_dim, layer, stack, kernel, causal):
+    def __init__(self,
+                 mic_num=config.model_mic_num,
+                 ch_dim=config.model_ch_dim,
+                 input_dim=config.model_enc_dim,
+                 output_dim=config.model_enc_dim * config.model_num_spk,  # enc_dim*num_spk
+                 BN_dim=config.model_feature_dim,
+                 hidden_dim=config.model_feature_dim * 4,  # 保持原逻辑（feature_dim*4）
+                 layer=config.model_layer,
+                 stack=config.model_stack,
+                 kernel=config.model_kernel,
+                 causal=config.model_causal):
         super(MaskNet, self).__init__()
         self.TCN = modules.TCN(
             mic_num=mic_num,
@@ -56,8 +75,15 @@ class MaskNet(torch.nn.Module):
 
 # 3. 解码器模块：封装原self.decoder的ConvTranspose1d
 class Decoder(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, win, stride, groups):
+    def __init__(self,
+                 in_channels=config.model_enc_dim * config.model_num_spk,  # enc_dim*num_spk
+                 out_channels=config.model_num_spk,  # 输出num_spk路音频
+                 win=int(config.sample_rate * config.model_win / 1000),  # 与Encoder保持一致的win计算方式
+                 stride=None,  # stride为win的一半（原逻辑）
+                 groups=config.model_num_spk):  # 按num_spk分组
         super(Decoder, self).__init__()
+        if stride is None:
+            stride = win // 2  # 内部计算stride
         self.decoder = torch.nn.ConvTranspose1d(
             in_channels,
             out_channels,
@@ -82,54 +108,10 @@ class Decoder(torch.nn.Module):
 class TasNet(torch.nn.Module):
     def __init__(self):
         super(TasNet, self).__init__()
-        # -------------- 超参（与原代码一致） ----------------
-        self.mic_num = config.model_mic_num      # 2
-        self.num_spk = config.model_num_spk      # 4
-        self.enc_dim = config.model_enc_dim      # 512
-        self.feature_dim = config.model_feature_dim
-        self.ch_dim = config.model_ch_dim
-
-        self.win = int(config.sample_rate * config.model_win / 1000)
-        self.stride = self.win // 2
-
-        self.layer = config.model_layer
-        self.stack = config.model_stack
-        self.kernel = config.model_kernel
-        self.causal = config.model_causal
-
-        # -------------- 组合拆分后的模块 ----------------
-        # 编码器：2路输入 → 512维特征
-        self.encoder = Encoder(
-            mic_num=self.mic_num,
-            enc_dim=self.enc_dim,
-            win=self.win,
-            stride=self.stride
-        )
-
-        # 掩码网络：输入编码特征，输出掩码（与原TCN参数一致）
-        self.masknet = MaskNet(
-            mic_num=self.mic_num,
-            ch_dim=self.ch_dim,
-            input_dim=self.enc_dim,
-            output_dim=self.enc_dim * self.num_spk,  # 输出维度为 enc_dim*num_spk（原TCN的output_dim）
-            BN_dim=self.feature_dim,
-            hidden_dim=self.feature_dim * 4,
-            layer=self.layer,
-            stack=self.stack,
-            kernel=self.kernel,
-            causal=self.causal
-        )
-        self.receptive_field = self.masknet.receptive_field  # 复用掩码网络的感受野
-
-        # 解码器：一次性输出4路音频
-        self.decoder = Decoder(
-            in_channels=self.enc_dim * self.num_spk,
-            out_channels=self.num_spk,
-            win=self.win,
-            stride=self.stride,
-            groups=self.num_spk  # 关键：分组卷积确保同时输出4路
-        )
-
+        self.encoder = Encoder()  # 自动从config获取参数
+        self.masknet = MaskNet()  # 自动从config获取参数
+        self.decoder = Decoder()  # 自动从config获取参数
+        self.receptive_field = self.masknet.receptive_field  # 保持感受野引用
     # ---------- 工具方法（与原代码一致，无需修改） ----------
     def pad_signal(self, input):
         if input.dim() not in [2, 3]:
